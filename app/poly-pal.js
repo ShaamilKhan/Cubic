@@ -1,0 +1,1 @@
+window.POLY_PAL={"pyr":["#ffd500","#b71234","#0046ad","#009b48"],"skb":["#ffffff","#b71234","#009b48","#ffd500","#ff5800","#0046ad"],"mgm":["#ffffff","#0a7a3a","#c8102e","#1d3fbf","#ffd23a","#7a2cf2","#8d8d92","#8bd800","#ff7a1f","#6fc6ee","#f1ecb0","#e48ad8"]};

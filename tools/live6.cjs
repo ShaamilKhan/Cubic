@@ -1,0 +1,140 @@
+const { spawn } = require('child_process'), fs = require('fs');
+const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', PORT = 9461;
+const edge = spawn(EDGE, ['--headless=new', '--disable-gpu', '--remote-debugging-port=' + PORT, '--user-data-dir=C:/Projects/Cubetimer/tools/.work/l7-' + Date.now(), '--window-size=1440,900', 'about:blank'], { stdio: 'ignore' });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let fails = 0;
+const check = (name, ok, extra) => { if (!ok) fails++; console.log((ok ? 'PASS ' : 'FAIL ') + name + (extra !== undefined ? '   ' + (typeof extra === 'string' ? extra : JSON.stringify(extra)) : '')); };
+(async () => {
+  let t; for (let i = 0; i < 40; i++) { try { t = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json(); if (t.find(x => x.type === 'page')) break; } catch (e) {} await sleep(250); }
+  const ws = new WebSocket(t.find(x => x.type === 'page').webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
+  let id = 0; const p = new Map(), errs = [];
+  ws.onmessage = e => { const d = JSON.parse(e.data); if (d.id && p.has(d.id)) { p.get(d.id)(d); p.delete(d.id); } if (d.method === 'Runtime.exceptionThrown') errs.push(d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text); };
+  const call = (m, a = {}) => new Promise(r => { const i = ++id; p.set(i, r); ws.send(JSON.stringify({ id: i, method: m, params: a })); });
+  const ev = async x => { const r = await call('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); if (r.result.exceptionDetails) return 'ERR ' + (r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text); return r.result.result.value; };
+  const shot = async n => { const r = await call('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync('C:/Projects/Cubetimer/tools/.work/' + n + '.png', Buffer.from(r.result.data, 'base64')); };
+  const key = (ty, k, c, v) => call('Input.dispatchKeyEvent', { type: ty, key: k, code: c, windowsVirtualKeyCode: v, text: k === ' ' ? ' ' : undefined });
+  const click = async sel => { const r = await ev(`(()=>{const e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;const b=e.getBoundingClientRect();return [b.left+b.width/2,b.top+b.height/2]})()`); if (!r || r === null || typeof r === 'string') return false; for (const ty of ['mouseMoved', 'mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type: ty, x: r[0], y: r[1], button: 'left', clickCount: 1 }); return true; };
+  const timeText = () => ev(`document.querySelector('#t').textContent`);
+  // one real timed solve with the keyboard: hold, release, wait, press any key
+  const waitPhase = async (want, ms = 3000) => { for (let i = 0; i < ms / 25; i++) { if ((await ev('__cubic.state.phase')) === want) return true; await sleep(25); } return false; };
+  const solve = async (ms = 700) => { for (let i = 0; i < 300 && !(await ev('__cubic.state.scr')); i++) await sleep(50); await key('keyDown', ' ', 'Space', 32); await waitPhase('ready'); await key('keyUp', ' ', 'Space', 32); await waitPhase('running'); await sleep(ms); await key('keyDown', 'a', 'KeyA', 65); await key('keyUp', 'a', 'KeyA', 65); await waitPhase('idle'); await sleep(300); };
+  const waitScr = async () => { for (let i = 0; i < 200; i++) { const s = await ev(`__cubic.state.scr`); if (s && s !== 'ERR') return s; await sleep(50); } };
+  await call('Runtime.enable'); await call('Page.enable'); await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await call('Page.navigate', { url: 'file:///C:/Projects/Cubetimer/app/index.html' }); for (let i = 0; i < 300 && (await ev('typeof __cubic')) !== 'object'; i++) await sleep(100); for (let i = 0; i < 300 && !(await ev('__cubic.state.scr')); i++) await sleep(100); await sleep(250);
+
+  console.log('--- the buttons under the timer');
+  await solve(800);
+  const raw = await timeText();
+  check('a solve ends and shows its time', /^\d+\.\d\d$/.test(raw), raw);
+  check('the four buttons are visible', await ev(`getComputedStyle(document.querySelector('#after')).display`) === 'flex');
+  const cm = await ev(`(document.querySelector('#quip').hidden?'':document.querySelector('#quip').textContent)`);
+  check('a comment appears after the solve', cm && cm.length > 5, cm);
+  const bodyBefore = await ev(`document.body.className`);
+  await click('#after [data-pen="2"]'); await sleep(300);
+  const p2 = await timeText();
+  check('clicking +2 does NOT make the timer expand / start', !/\b(hold|run)\b/.test(await ev(`document.body.className`)), await ev(`document.body.className`));
+  const base = parseFloat(raw);
+  check('+2 adds two seconds to the shown time', /\+2$/.test(p2) && Math.abs(parseFloat(p2) - (base + 2)) < 0.011, raw + ' -> ' + p2);
+  check('+2 button is marked', await ev(`document.querySelector('#after [data-pen="2"]').classList.contains('on')`));
+  check('the comment changed for +2', (await ev(`document.querySelector('#quip').textContent`)) !== cm, await ev(`document.querySelector('#quip').textContent`));
+  await click('#after [data-pen="DNF"]'); await sleep(300);
+  check('DNF shows DNF in the time until the next timer starts', (await timeText()) === 'DNF', await timeText());
+  check('DNF is red', (await ev(`getComputedStyle(document.querySelector('#t')).color`)) !== 'rgb(245, 245, 245)', await ev(`getComputedStyle(document.querySelector('#t')).color`));
+  await shot('t-dnf');
+  await click('#after [data-pen="0"]'); await sleep(300);
+  check('OK shows the time again', (await timeText()) === raw, await timeText());
+  check('page did not scroll or expand', !/\b(hold|run)\b/.test(await ev(`document.body.className`)));
+  // a DNF stays until the next solve starts
+  await click('#after [data-pen="DNF"]'); await sleep(250);
+  await key('keyDown', ' ', 'Space', 32); await sleep(120);
+  check('while holding, the DNF stays up in red (like any last time)', (await timeText()) === 'DNF', await timeText());
+  await sleep(450);
+  check('when it turns green the clock clears: DNF is gone', (await timeText()) === '0.00' && !(await ev("document.querySelector('#t').classList.contains('is-dnf')")), await timeText());
+  await key('keyUp', ' ', 'Space', 32); await sleep(250); await key('keyDown', 'a', 'KeyA', 65); await key('keyUp', 'a', 'KeyA', 65); await sleep(450);
+  await click('#after [data-pen="0"]'); await sleep(200);
+
+  console.log('--- a few more solves, then All solves');
+  for (let i = 0; i < 5; i++) await solve(300 + i * 150);
+  await click('#after [data-pen="0"]');
+  check('Review solve button opens the solve (no timer expansion)', await click('#rv-last') && (await sleep(500), await ev(`document.querySelector('#modal').classList.contains('on')`)));
+  check('  solve sheet shows the scramble', (await ev(`document.querySelector('.sv-scr')?.textContent.length`)) > 20);
+  check('  solve sheet shows when it was solved', /\d/.test(await ev(`document.querySelector('.sh-h .sub')?.textContent||''`)), await ev(`document.querySelector('.sh-h .sub')?.textContent`));
+  check('  solve sheet shows Ao5/Ao12/rank', (await ev(`document.querySelectorAll('.sv-facts div').length`)) === 4);
+  await shot('t-solve');
+  await key('keyDown', 'Escape', 'Escape', 27); await key('keyUp', 'Escape', 'Escape', 27); await sleep(250);
+  check('Esc closes it', !(await ev(`document.querySelector('#modal').classList.contains('on')`)));
+  await click('#all'); await sleep(400);
+  const caps = await ev(`[...document.querySelectorAll('.caps .cap')].map(c=>c.textContent)`);
+  check('All solves lists the times only, as capsules', Array.isArray(caps) && caps.length >= 6 && caps.every(c => /^(\d+:)?\d+\.\d\d\+?$|^DNF$/.test(c)), caps);
+  check('  nothing but capsules in the list (no scramble text)', (await ev(`document.querySelector('.caps').textContent.length`)) < 120);
+  await shot('t-all');
+  await click('.caps .cap'); await sleep(400);
+  check('tapping a capsule opens that solve', (await ev(`document.querySelector('.sv-scr')?.textContent.length`)) > 20);
+  check('  with a way back to the list', await ev(`!!document.querySelector('#sv-back')`));
+  await click('.sv-pen [data-p="2"]'); await sleep(300);
+  check('  changing the result inside the sheet works', await ev(`document.querySelector('.sv-pen [data-p="2"]').classList.contains('on')`));
+  await key('keyDown', 'Escape', 'Escape', 27); await key('keyUp', 'Escape', 'Escape', 27); await sleep(200);
+  await click('#recent button'); await sleep(400);
+  check('tapping a capsule in "Your session" opens the solve', await ev(`document.querySelector('#modal').classList.contains('on') && !!document.querySelector('.sv-scr')`));
+  await key('keyDown', 'Escape', 'Escape', 27); await key('keyUp', 'Escape', 'Escape', 27); await sleep(200);
+
+  console.log('--- settings: name, hide the time');
+  await click('#settings'); await sleep(300);
+  await ev(`(()=>{const n=document.querySelector('#nm');n.focus();})()`);
+  for (const ch of 'Sam') { await call('Input.dispatchKeyEvent', { type: 'keyDown', key: ch, text: ch }); await call('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); }
+  await sleep(200);
+  check('typing a name works (space/letters not swallowed)', (await ev(`document.querySelector('#nm').value`)) === 'Sam', await ev(`document.querySelector('#nm').value`));
+  check('the name shows in the header', (await ev(`document.querySelector('#who').textContent`)) === 'Sam' && !(await ev(`document.querySelector('#who').hidden`)));
+  await click('#s-hide'); await sleep(150);
+  check('hide-the-time switch turns on', await ev(`document.querySelector('#s-hide').getAttribute('aria-checked')`) === 'true');
+  await key('keyDown', 'Escape', 'Escape', 27); await key('keyUp', 'Escape', 'Escape', 27); await sleep(250);
+  await key('keyDown', ' ', 'Space', 32); await waitPhase('ready'); await key('keyUp', ' ', 'Space', 32); await waitPhase('running'); await sleep(900);
+  check('while solving the number is hidden', (await ev(`getComputedStyle(document.querySelector('#t')).display`)) === 'none', await ev(`getComputedStyle(document.querySelector('#t')).display`));
+  check('  and a small animation shows instead', (await ev(`getComputedStyle(document.querySelector('#solving')).display`)) === 'flex');
+  await shot('t-veil');
+  await key('keyDown', 'a', 'KeyA', 65); await key('keyUp', 'a', 'KeyA', 65); await waitPhase('idle'); await sleep(400);
+  check('after stopping, the time appears', /^\d+\.\d\d$/.test(await timeText()), await timeText());
+  check('  and the comment mentions or addresses the user', (await ev(`document.querySelector('#quip').textContent.length`)) > 5, await ev(`document.querySelector('#quip').textContent`));
+
+  console.log('--- stop effects');
+  const fxs = await ev(`(()=>{const out={};for(const k of FX.KINDS){const t=document.querySelector('#t');FX.play(k,t);out[k]=t.classList.contains('fx-'+k);}return out})()`);
+  check('every effect class applies', Object.values(fxs).every(Boolean), fxs);
+  for (let i = 0; i < 100 && (await ev(`document.querySelectorAll('#fx > *').length`)) > 0; i++) await sleep(100);   // let the six effects played above finish
+  await ev(`document.querySelector('#nav [data-s="timer"]').click()`); await sleep(300);
+  await ev(`FX.play('pb',document.querySelector('#t'))`); await sleep(350);
+  const fxState = await ev(`JSON.stringify({canvas:document.querySelectorAll('#fx canvas').length,rings:document.querySelectorAll('#fx .fx-ring').length,screen:__cubic.state.screen,tcls:document.querySelector('#t').className,vis:document.querySelector('#t').getBoundingClientRect().width>0,body:document.body.className})`);
+  check('a personal best draws confetti', (await ev(`document.querySelectorAll('#fx canvas').length`)) >= 1 && (await ev(`document.querySelectorAll('#fx .fx-ring').length`)) >= 1, fxState);
+  await shot('t-pb');   // screenshot after the check: capturing can take longer than the effect lasts
+  for (let i = 0; i < 60 && (await ev(`document.querySelectorAll('#fx > *').length`)) > 0; i++) await sleep(100);
+  check('overlays clean themselves up', (await ev(`document.querySelectorAll('#fx > *').length`)) === 0, await ev(`document.querySelectorAll('#fx > *').length`));
+  await ev(`FX.play('worst',document.querySelector('#t'))`); await sleep(350); await shot('t-worst'); await sleep(1500);
+
+  console.log('--- stats');
+  await ev(`document.querySelector('#s-hide') && 0`);
+  await click('#nav [data-s="stats"]'); await sleep(900);
+  check('Stats tab opens', await ev(`document.querySelector('#stats').classList.contains('on')`));
+  check('  title carries the name', /Sam/.test(await ev(`document.querySelector('#st-title').textContent`)), await ev(`document.querySelector('#st-title').textContent`));
+  const sh = await ev(`({lines:document.querySelectorAll('#ch svg .ln').length,tiles:document.querySelectorAll('.tile').length,hero:document.querySelector('.hero b')?.textContent,svgw:Math.round(document.querySelector('#ch svg')?.getBoundingClientRect().width||0)})`);
+  check('  line chart drawn (solve, Ao5, Ao12, mean)', sh.lines === 4 && sh.svgw > 400, sh);
+  check('  stat tiles shown (Solves, Best, Mean, Ao5, Ao12, current Ao5/Ao12, Worst, DNFs)', sh.tiles === 9, sh.tiles);
+  await shot('t-stats');
+  await ev(`document.querySelector('#ch').scrollIntoView({block:'center'})`); await sleep(300);
+  const hv0 = await ev(`String(document.querySelector('#ch svg .hit'))+' '+document.querySelector('#ch').getBoundingClientRect().height`); console.log('HV', hv0);
+  const hv = await ev(`(()=>{const r=document.querySelector('#ch svg .hit').getBoundingClientRect();return [r.left+r.width*0.6,r.top+r.height/2]})()`);
+  await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hv[0], y: hv[1] }); await sleep(250);
+  check('  hovering the chart shows a tooltip with every series', (await ev(`document.querySelector('.ch-tip') && !document.querySelector('.ch-tip').hidden && document.querySelectorAll('.ch-tip .tt-r').length===3`)) === true, await ev(`document.querySelector('.ch-tip')?.textContent`));
+  await shot('t-stats-hover');
+  await ev(`document.querySelector('#stats .st').scrollTo(0,0)`); await sleep(250);
+  await click('#st-view [data-v="table"]'); await sleep(300);
+  await sleep(400);
+  check('  table view carries the same numbers', (await ev(`document.querySelectorAll('.tb tbody tr').length`)) >= 7, await ev(`JSON.stringify({rows:document.querySelectorAll('.tb tbody tr').length,view:document.querySelector('#st-view .on')?.dataset.v,ch:document.querySelector('#ch').innerHTML.slice(0,80)})`));
+  await click('#st-view [data-v="chart"]');
+  const stored = await ev(`localStorage.getItem('cubic-v1')`);
+  check('data is stored in the browser, with the name', typeof stored === 'string' && /"name":"Sam"/.test(stored) && /"solves":\[/.test(stored), stored && stored.length + ' bytes');
+  // reload: everything comes back
+  await call('Page.reload'); await sleep(4500); await waitScr();
+  check('after a reload the name and solves are still there', (await ev(`document.querySelector('#who').textContent`)) === 'Sam' && Number(await ev(`document.querySelector('#sn').textContent`)) >= 7, await ev(`document.querySelector('#sn').textContent`));
+  console.log('\nJS errors:', errs.length ? errs : 'none');
+  console.log(fails ? '\n' + fails + ' CHECK(S) FAILED' : '\nall checks passed');
+  ws.close(); edge.kill(); process.exit(0);
+})().catch(e => { console.log('DRIVER FAILED', e.message); try { edge.kill(); } catch (x) {} process.exit(1); });

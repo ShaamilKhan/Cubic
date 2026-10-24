@@ -1,0 +1,9 @@
+NOIR Cube — GPL-3.0
+Scramble engine: cs0x7f/cstimer (GPL-3.0).
+Algorithm data: bryanlundberg/NexusTimer (GPL-3.0).
+Modified application interface and integration, 2026.
+Source for engine is distributed unminified in engine.js. Algorithm data is distributed in algorithms.json.
+
+Training-card layout informed by TwistyTimer (aricneto/TwistyTimer, GPL-3.0). Diagrams are generated from each case setup; no Android app is installed. Missing setup sequences are derived by inverting the first reference algorithm.
+
+OLL/PLL trainer variants: TwistyTimer, app/src/main/res/values/trainer_scrambles.xml (GPL-3.0). Upstream credits Roman-/oll_trainer. 2,490 templates across 78 cases. NOIR generates inverse setups with rotated face mappings.

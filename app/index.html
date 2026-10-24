@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#000000">
+<title>Cubic — speedcubing timer, trainer and guides</title>
+<meta name="description" content="A clean AMOLED speedcubing timer with official WCA scrambles for every puzzle, algorithm trainer, step-by-step guides and stats. Your data stays in your browser.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Crect x='4' y='4' width='11' height='11' fill='%23fff'/%3E%3Crect x='17' y='4' width='11' height='11' fill='%23009b48'/%3E%3Crect x='4' y='17' width='11' height='11' fill='%23b71234'/%3E%3Crect x='17' y='17' width='11' height='11' fill='%230046ad'/%3E%3C/svg%3E">
+<meta property="og:title" content="Cubic">
+<meta property="og:description" content="Speedcubing timer, WCA scrambles, algorithm trainer and guides.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <a class="logo" href="#timer" id="logo" aria-label="Cubic, go to the timer"><i><b style="background:#fff"></b><b style="background:#009b48"></b><b style="background:#b71234"></b><b style="background:#0046ad"></b></i>Cubic</a>
+  <nav id="nav" aria-label="Main">
+    <button data-s="timer" class="on">Timer</button>
+    <button data-s="train">Train</button>
+    <button data-s="learn">Learn</button>
+    <button data-s="stats">Stats</button>
+    <button data-s="review">Review</button>
+  </nav>
+  <div class="hr"><button class="warn" id="savewarn" hidden title="This browser would not let the app save. Export a backup from Settings so nothing is lost.">Not saving</button><button class="who" id="who" hidden></button><button class="ic" id="settings" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button></div>
+</header>
+
+<main>
+  <!-- TIMER -->
+  <section class="screen on" id="timer">
+    <div class="evbar">
+      <div class="events" id="events"></div>
+      <div class="mode" id="mode">
+        <div class="tmenu" id="tmenu" hidden>
+          <button class="tbtn" id="tbtn" aria-haspopup="listbox" aria-expanded="false"><span id="tname">Standard</span><svg viewBox="0 0 12 12"><path d="m3 4.5 3 3 3-3"/></svg></button>
+          <div class="pop" id="pop" role="listbox" hidden></div>
+        </div>
+        <div class="seg2" id="wca" role="radiogroup" aria-label="Scrambler">
+          <button data-w="1" role="radio">WCA</button><button data-w="0" role="radio">Practice</button>
+        </div>
+        <button class="insp" id="insp" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></svg>Inspect</button>
+      </div>
+    </div>
+    <div class="scr" id="scr" aria-live="polite"></div>
+    <div class="algline" id="algline"></div>
+    <div class="scr-tools">
+      <button class="ic" id="copy" aria-label="Copy scramble" title="Copy scramble"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></button>
+      <button class="ic" id="next" aria-label="New scramble" title="New scramble"><svg viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+    </div>
+    <div class="mid">
+      <div class="clock" id="clock" role="button" aria-label="Timer">
+        <div id="t">0<small>.00</small></div>
+        <div class="solving" id="solving" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="under">
+          <span id="hint">Hold <kbd>space</kbd> and release to start</span>
+          <p class="quip" id="quip" aria-live="polite" hidden></p>
+          <div class="after" id="after">
+            <button data-pen="0">OK</button><button data-pen="2">+2</button><button data-pen="DNF">DNF</button>
+            <span class="dv"></span><button id="rv-last">Review solve ↗</button>
+          </div>
+        </div>
+      </div>
+      <aside class="net"><div id="net"></div><div class="net-l">Scramble preview</div></aside>
+    </div>
+    <div class="band">
+      <div class="hd"><h2>Your session</h2><button class="link" id="all">All solves ↗</button></div>
+      <div class="stats">
+        <div class="stat"><span>Solves</span><b id="sn">0</b></div>
+        <div class="stat"><span>Best</span><b id="sb">—</b></div>
+        <div class="stat"><span>Ao5</span><b id="s5">—</b></div>
+        <div class="stat"><span>Ao12</span><b id="s12">—</b></div>
+        <div class="stat"><span>Mean</span><b id="sm">—</b></div>
+      </div>
+      <div class="recent" id="recent"></div>
+    </div>
+  </section>
+
+  <!-- TRAIN -->
+  <section class="screen" id="train">
+    <div class="train">
+      <aside class="side" id="side"></aside>
+      <div class="panel">
+        <div class="ph">
+          <div><h1 id="tt"></h1><p id="tp"></p></div>
+          <div class="acts"><input class="find" id="find" type="search" placeholder="Find a case" aria-label="Find a case"><button class="btn" id="drill-all">Practice all</button></div>
+        </div>
+        <div class="cases" id="cases"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LEARN -->
+  <section class="screen" id="learn">
+    <div class="train">
+      <aside class="side" id="lside"></aside>
+      <div class="panel"><div class="cases lrn" id="lbody"></div></div>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <section class="screen" id="stats">
+    <div class="st">
+      <div class="st-h">
+        <div><h1 id="st-title">Your stats</h1><p id="st-sub"></p></div>
+        <div class="st-f" id="st-f">
+          <select class="vsel" id="st-ev" aria-label="Puzzle"></select>
+          <div class="seg" id="st-range" role="group" aria-label="Range"><button data-r="50">Last 50</button><button data-r="200">Last 200</button><button data-r="0">All</button></div>
+          <div class="seg" id="st-view" role="group" aria-label="View"><button data-v="chart">Chart</button><button data-v="table">Table</button></div>
+        </div>
+      </div>
+      <div class="activity" id="st-act" aria-label="Activity"></div>
+      <div id="st-body"></div>
+    </div>
+  </section>
+
+  <!-- REVIEW -->
+  <section class="screen" id="review"><div class="rev" id="rev"></div></section>
+</main>
+
+<div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
+
+<script src="sim.js"></script>
+<script src="render.js"></script>
+<script src="nxn.js"></script>
+<script src="poly3d.js"></script>
+<script src="poly-pal.js"></script>
+<script src="views.js"></script>
+<script src="learn-data.js"></script>
+<script src="quips.js"></script>
+<script src="stats.js"></script>
+<script src="fx.js"></script>
+<script src="catalog.js"></script>
+<script src="algsets.js"></script>
+<script src="engine-src.js"></script>
+<script src="tnoodle-b64.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+Cubic: GNU General Public License v3.0 (full text in LICENSE.txt)
+
+This site is built from, and contains, GPL-3.0 software. The unminified source of the interface is the set of .js and .css files served here; the generated data files are rebuilt from the sources below by the scripts in the project's tools/ folder.
+
+  csTimer                    cs0x7f/cstimer              scramble generators, puzzle diagrams, 3D puzzle geometry (poly3dlib), solver search code
+  NexusTimer                 bryanlundberg/NexusTimer    algorithm data; WebAssembly port of TNoodle's scramble library
+  tnoodle-lib                thewca/tnoodle-lib          the WCA's official scrambler (via the port above)
+  TwistyTimer                aricneto/TwistyTimer        training-card layout ideas; OLL/PLL trainer templates
+  Geist and Geist Mono       Vercel                      typefaces, SIL Open Font License, loaded from Google Fonts
+
+Beginner Learn guides summarise publicly published beginner methods; their steps were rewritten, and the algorithms in the 3x3, 2x2 and big-cube guides were checked on models of the puzzles.
+
+Source code: provide the repository this site was built from to anyone who asks.

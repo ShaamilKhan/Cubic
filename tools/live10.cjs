@@ -1,0 +1,46 @@
+// Display settings (hide scramble / picture / session bar), persistence, the timer with everything hidden, and a 3BLD method review.
+const { spawn } = require('child_process');
+const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', PORT = 9802;
+const edge = spawn(EDGE, ['--headless=new', '--disable-gpu', '--remote-debugging-port=' + PORT, '--user-data-dir=C:/Projects/Cubetimer/tools/.work/l10-' + Date.now(), '--window-size=1440,900', 'about:blank'], { stdio: 'ignore' });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let fails = 0;
+const check = (n, ok, x) => { if (!ok) fails++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (x !== undefined ? '   ' + (typeof x === 'string' ? x : JSON.stringify(x)).slice(0, 180) : '')); };
+(async () => {
+  let t; for (let i = 0; i < 40; i++) { try { t = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json(); if (t.find(x => x.type === 'page')) break; } catch (e) {} await sleep(250); }
+  const ws = new WebSocket(t.find(x => x.type === 'page').webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
+  let id = 0; const p = new Map(), errs = [];
+  ws.onmessage = e => { const d = JSON.parse(e.data); if (d.id && p.has(d.id)) { p.get(d.id)(d); p.delete(d.id); } if (d.method === 'Runtime.exceptionThrown') errs.push(d.params.exceptionDetails.exception?.description?.slice(0, 200) || d.params.exceptionDetails.text); };
+  const call = (m, a = {}) => new Promise(r => { const i = ++id; p.set(i, r); ws.send(JSON.stringify({ id: i, method: m, params: a })); });
+  const ev = async x => { const r = await call('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); return r.result.exceptionDetails ? 'ERR ' + (r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text) : r.result.result.value; };
+  const key = (ty, k, c, v) => call('Input.dispatchKeyEvent', { type: ty, key: k, code: c, windowsVirtualKeyCode: v, text: k === ' ' ? ' ' : undefined });
+  const phase = async (w, ms = 3000) => { for (let i = 0; i < ms / 25; i++) { if ((await ev('__cubic.state.phase')) === w) return true; await sleep(25); } return false; };
+  const ready = async () => { for (let i = 0; i < 400 && (await ev('typeof __cubic')) !== 'object'; i++) await sleep(50); for (let i = 0; i < 400 && !(await ev('__cubic.state.scr')); i++) await sleep(50); await sleep(200); };
+  const vis = sel => ev(`(()=>{const e=document.querySelector(${JSON.stringify(sel)});if(!e)return 'none';const s=getComputedStyle(e),b=e.getBoundingClientRect();return s.display==='none'?'display-none':s.visibility==='hidden'?'hidden':'shown'})()`);
+  const solve = async () => { await key('keyDown', ' ', 'Space', 32); await phase('ready'); await key('keyUp', ' ', 'Space', 32); await phase('running'); await sleep(450); await key('keyDown', 'a', 'KeyA', 65); await key('keyUp', 'a', 'KeyA', 65); await phase('idle'); await sleep(300); };
+  await call('Runtime.enable'); await call('Page.enable'); await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await call('Page.navigate', { url: 'file:///C:/Projects/Cubetimer/app/index.html' }); await ready();
+  const txt = () => ev(`document.querySelector('#t').textContent`);
+  const pen = () => ev(`JSON.parse(localStorage.getItem('cubic-v1')).solves.slice(-1)[0]?.pen`);
+  const st = () => ev('__cubic.state.phase');
+  const tap = async () => { await key('keyDown', ' ', 'Space', 32); await key('keyUp', ' ', 'Space', 32); await sleep(150); };
+  const stop = async () => { await key('keyDown', 'a', 'KeyA', 65); await key('keyUp', 'a', 'KeyA', 65); await phase('idle'); await sleep(200); };
+  check('Inspect chip exists and is off', (await ev(`document.getElementById('insp').getAttribute('aria-pressed')`)) === 'false');
+  await tap(); check('off: a tap does not start inspection', (await st()) === 'idle');
+  await ev(`document.getElementById('insp').click()`);
+  check('chip turns inspection on and saves it', (await ev(`JSON.parse(localStorage.getItem('cubic-v1')).insp`)) === true);
+  await tap(); check('press starts inspection', (await st()) === 'insp');
+  const a = await txt(); check('countdown shows 15 or 14', a === '15' || a === '14', a);
+  await sleep(1300); check('counts down', Number(await txt()) < Number(a));
+  await tap(); check('a quick tap starts the timer', (await st()) === 'running');
+  await sleep(300); await stop(); check('no penalty', (await pen()) === '0');
+  await tap(); await sleep(300);
+  await key('keyDown', ' ', 'Space', 32); await phase('ready'); await key('keyUp', ' ', 'Space', 32);
+  check('hold and release also starts it', await phase('running'));
+  await sleep(300); await stop();
+  await tap(); await sleep(15500);
+  check('at 15 s it starts by itself', (await st()) === 'running', (await st()) + ' ' + (await txt()));
+  await sleep(400); await stop();
+  check('auto-start has no penalty, no DNF', (await pen()) === '0', await pen());
+  console.log('JS errors:', errs.length ? errs : 'none'); check('no JavaScript errors', errs.length === 0, errs);
+  console.log(fails ? fails + ' FAILED' : 'all checks passed'); ws.close(); edge.kill(); process.exit(0);
+})().catch(e => { console.log('DRIVER FAILED', e.message); try { edge.kill(); } catch (x) {} process.exit(1); });
