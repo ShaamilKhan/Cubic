@@ -37,12 +37,12 @@
     return out;
   }
 
+  // does this move turn the piece at p? (also used by the turning animation, so both always agree)
+  const hits = (mv, p) => { const d = dot(p, mv.ax); return mv.mode === 'all' || (mv.mode === 'face' && d === 1) || (mv.mode === 'wide' && d >= 0) || (mv.mode === 'slice' && d === 0); };
   function apply(s, moves) {
     for (const mv of moves) {
       for (let i = 0; i < s.length; i++) {
-        const d = dot(s[i].p, mv.ax);
-        const hit = mv.mode === 'all' || (mv.mode === 'face' && d === 1) || (mv.mode === 'wide' && d >= 0) || (mv.mode === 'slice' && d === 0);
-        if (!hit) continue;
+        if (!hits(mv, s[i].p)) continue;
         let p = s[i].p, n = s[i].n;
         for (let q = 0; q < mv.t; q++) { p = rot(p, mv.ax); n = rot(n, mv.ax); }
         s[i] = { p, n, c: s[i].c, o: s[i].o };
@@ -194,6 +194,6 @@
     return r === null ? n : deRotate(n + (r ? ' ' + r : ''));
   }
 
-  const api = { faceOnly, homeTurn, normalize, deRotate, AX, solved, parse, apply, invert, run, grid, lastLayer, isSolved, lowerSolved, arrows, pll };
+  const api = { hits, faceOnly, homeTurn, normalize, deRotate, AX, solved, parse, apply, invert, run, grid, lastLayer, isSolved, lowerSolved, arrows, pll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else g.Sim = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -167,18 +167,20 @@
     let u = o.up || [0, 1, 0]; u = add(u, scale(d, -dot(u, d)));
     if (len(u) < 1e-6) u = add([0, 0, 1], scale(d, -d[2]));
     u = unit(u); const r = unit(cross(u, d));
-    const vis = [];
-    P.pieces.forEach((p, i) => { if (dot(p.n, d) > 0.03 && (!o.axis || dot(p.c, o.axis) >= o.minH)) vis.push(i); });
-    vis.sort((a, b) => dot(P.pieces[a].c, d) - dot(P.pieces[b].c, d));
+    const vis = [], T = o.turn, A = g.Anim || (node && require('./anim.js'));
+    const mv = (i, v) => (T && T.th && T.set.has(i) ? A.rotV(v, T.axis, T.th) : v);   // a piece in the turning layer is swung round its axis
+    P.pieces.forEach((p, i) => { if (dot(mv(i, p.n), d) > 0.03 && (!o.axis || dot(p.c, o.axis) >= o.minH)) vis.push(i); });
+    vis.sort((a, b) => dot(mv(a, P.pieces[a].c), d) - dot(mv(b, P.pieces[b].c), d));
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-    const pr = vis.map(i => P.pieces[i].v.map(v => { const x = dot(v, r), y = -dot(v, u); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); return [x, y]; }));
-    const k = 88 / Math.max(x1 - x0, y1 - y0), ox = 50 - ((x0 + x1) / 2) * k, oy = 50 - ((y0 + y1) / 2) * k;
+    const pr = vis.map(i => P.pieces[i].v.map(v => { v = mv(i, v); const x = dot(v, r), y = -dot(v, u); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); return [x, y]; }));
+    let k = 88 / Math.max(x1 - x0, y1 - y0), ox = 50 - ((x0 + x1) / 2) * k, oy = 50 - ((y0 + y1) / 2) * k;
+    if (o.frame) { if (o.frame.k) ({ k, ox, oy } = o.frame); else Object.assign(o.frame, { k, ox, oy }); }
     let out = '';
     vis.forEach((i, j) => {
       const c = o.mask !== undefined ? (pos[i] === o.mask ? pal[o.mask] : DARK) : pal[pos[i]];
       out += `<polygon points="${pr[j].map(q => f1(q[0] * k + ox) + ',' + f1(q[1] * k + oy)).join(' ')}" fill="${c}" stroke="#000" stroke-width="${o.stroke || 1.1}" stroke-linejoin="round"/>`;
     });
-    if (o.arrows && o.arrows.length) {
+    if (o.arrows && o.arrows.length && !T) {
       const ctr = new Map(); vis.forEach((i, j) => { const q = pr[j]; ctr.set(i, [q.reduce((s, v) => s + v[0], 0) / q.length * k + ox, q.reduce((s, v) => s + v[1], 0) / q.length * k + oy]); });
       const list = o.arrows.filter(r => ctr.has(r.a) && ctr.has(r.b)).map(r => ({ a: ctr.get(r.a), b: ctr.get(r.b), ka: r.a, kb: r.b }));
       out += arrowSvg(mergeArrows(list));
@@ -210,6 +212,40 @@
   function megaLL(pos, mask, arrows) {
     const P = puzzle('mgm');
     return polySvg('mgm', pos, { d: P.norms[0], up: scale(P.norms[1], -1), axis: P.norms[0], minH: 0.7, mask, stroke: 1.2, arrows });
+  }
+
+  /* ================= animation: how a move turns the pieces ================= */
+  // One move of a polyhedron as a turn: which pieces swing, round which axis, and by how much (the short way round).
+  function polyTurns(name, token) {
+    const P = puzzle(name); let list;
+    try { list = P.b.parser.parseScramble(String(token).replace(/[()]/g, ' ').trim()); } catch (e) { return []; }
+    const out = [];
+    for (const m of list) {
+      const idx = P.puz.getTwistyIdx(m[0]); if (idx < 0) continue;
+      const maxPow = P.puz.twistyDetails[idx][1], pow = ((m[1] % maxPow) + maxPow) % maxPow; if (!pow) continue;
+      const short = pow > maxPow / 2 ? pow - maxPow : pow, tab = P.puz.moveTable[idx], nrm = P.puz.twistyPlanes[P.puz.twistyDetails[idx][2]].norm, set = new Set();
+      P.pieces.forEach((_, i) => { if (tab[i] >= 0) set.add(i); });
+      const t = { axis: [nrm.x, nrm.y, nrm.z], set, theta: short * 2 * Math.PI / maxPow, q: Math.abs(short) > 1 ? 2 : 1 };
+      t.inv = () => ({ ...t, theta: -t.theta, inv: () => t });
+      out.push(t);
+    }
+    return out;
+  }
+  // Pictures that keep the same viewpoint through a whole algorithm. The far side is shown if anything on it is out of order to begin with.
+  function polyRig(name, setup) {
+    const P = puzzle(name), pos0 = posit(name, setup || '');
+    const d = name === 'mgm' ? unit(add(add(P.norms[0], P.norms[1]), P.norms[2])) : bestView(name, pos0), back = scale(d, -1), seen = new Set();
+    P.pieces.forEach((p, i) => { if (dot(p.n, back) > 0.03) seen.add(pos0[i]); });
+    const two = name === 'mgm' || seen.size > 1, frames = [{}, {}];
+    const render = (pos, turn, i) => polySvg(name, pos, { d: i ? back : d, up: [0, 1, 0], turn, frame: frames[i] });
+    render(pos0, undefined, 0); if (two) render(pos0, undefined, 1);   // fixes the frame while the puzzle is at rest
+    return { count: two ? 2 : 1, render, at: moves => posit(name, (setup || '') + ' ' + (moves || '')) };
+  }
+  // N×N×N: the corner each picture looks from stays put, and the natural-orientation turn is applied last
+  function nxnRig(N, mode, setup) {
+    const s = sim(N), base = s.run(setup || ''), turn = turnFor(N, base), ll = mode === 'll' || mode === 'oll';
+    const c1 = ll ? [1, 1, 1] : bestCorner(turn ? s.run(turn, base) : base);
+    return { N, post: turn, corners: [c1, opposite(c1)], view: alg => s.view(alg ? s.run(alg, base) : base), sim: s };
   }
 
   /* ================= one entry point per kind of picture ================= */
@@ -253,6 +289,6 @@
     return polySvg(v, pos, { d: which ? scale(d, -1) : d });
   };
 
-  const api = { views, full, llView, isoView, posit, puzzle, polySvg, megaLL, cubeState, turnFor, bestCorner, sim };
+  const api = { views, full, llView, isoView, posit, puzzle, polySvg, megaLL, cubeState, turnFor, bestCorner, sim, polyTurns, polyRig, nxnRig };
   if (node) module.exports = api; else g.Views = api;
 })(typeof window !== 'undefined' ? window : globalThis);

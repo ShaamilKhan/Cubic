@@ -6,12 +6,14 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 
 /* ---------- storage (every access guarded; the page works without it) ---------- */
 const KEY = 'cubic-v1', OLD_KEY = 'cubic-concept-v2';
-let store = { solves: [], learned: [], hold: 300, name: '', hide: false, comments: true, fx: true, showScr: true, showImg: true, showBand: true, insp: false };
+let store = { solves: [], learned: [], hold: 300, name: '', hide: false, comments: true, fx: true, showScr: true, showImg: true, showBand: true, insp: false, pick: {}, tmode: false };
 try {
   let raw = localStorage.getItem(KEY);
   if (!raw) { raw = localStorage.getItem(OLD_KEY); if (raw) localStorage.setItem(KEY, raw); }   // carry over data saved before the rename
   if (raw) store = { ...store, ...JSON.parse(raw) };
   if (typeof store.insp !== 'boolean') store.insp = false;
+  if (!store.pick || typeof store.pick !== 'object' || Array.isArray(store.pick)) store.pick = {};
+  store.tmode = store.tmode === true;
   for (const k of ['showScr', 'showImg', 'showBand']) if (typeof store[k] !== 'boolean') store[k] = true;
 } catch (e) {}
 let saveFailed = false;
@@ -167,9 +169,39 @@ function loadScript(src) {
   }));
 }
 let trainReady = false;
-async function ensureTrain() { if (!trainReady) { await loadScript('train-data.js'); buildTrain(); trainReady = true; } }
+async function ensureTrain() { if (!trainReady) { await Promise.all([loadScript('train-data.js'), loadScript('oll-extra.js').catch(() => {})]); buildTrain(); trainReady = true; } }
 const ensureLearn = () => window.LPIC ? Promise.resolve() : loadScript('learn-pics.js').catch(() => {});   // pictures are a bonus: the guide still reads without them
 const busy = on => document.body.classList.toggle('loading-data', on);
+
+/* ---------- move player: one controller for the Review screen and the case sheet ---------- */
+const PLAY_SVG = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>', PAUSE_SVG = '<svg viewBox="0 0 24 24"><path d="M7 5v14M17 5v14"/></svg>';
+const nap = ms => new Promise(r => setTimeout(r, ms));
+// o: { stage, len, onPos(p), afterMove(p), onPlay(bool) }. Positions are 0..len = how many moves have been made.
+function track(o) {
+  const t = { pos: 0, playing: false, id: 0 };
+  t.set = (p, anim) => {
+    o.stage.finish();                        // a press while a turn is in progress lets that turn land first
+    const from = t.pos; t.pos = p; o.onPos(p);
+    const done = () => { if (t.pos === p && o.afterMove) o.afterMove(p); };
+    if (anim && from !== p && Math.abs(p - from) <= 3) return o.stage.walk(from, p).then(done);
+    o.stage.show(p); done(); return Promise.resolve();
+  };
+  t.stop = () => { t.id++; if (t.playing) { t.playing = false; o.onPlay(false); } };
+  t.halt = () => { t.stop(); o.stage.cancel(); };
+  t.play = async () => {
+    if (t.playing) { t.stop(); return; }
+    if (t.pos >= o.len) await t.set(0, false);
+    t.playing = true; const id = ++t.id; o.onPlay(true);
+    while (t.id === id && t.pos < o.len) {
+      await t.set(t.pos + 1, true);
+      if (t.id !== id) return;
+      await nap(Anim.reduced() ? 520 : 170);   // a short breath between moves
+    }
+    if (t.id === id) { t.playing = false; o.onPlay(false); }
+  };
+  return t;
+}
+const setPlayIcon = (b, on) => { if (!b) return; b.innerHTML = on ? PAUSE_SVG : PLAY_SVG; b.setAttribute('aria-label', on ? 'Pause' : 'Play'); };
 
 /* ---------- navigation ---------- */
 let screen = 'timer', reviewId = null;
@@ -192,11 +224,13 @@ function renderEvents() {
   const el = $('#events');
   if (drill) {
     const n = drill.pool.length, set = SETMETA[drill.set];
-    el.innerHTML = `<div class="drill"><b>${set.name} practice</b><span>${n === 1 ? esc(DATA[drill.set][drill.pool[0]].n) : n + ' cases'}</span><span class="sep"></span><button class="link" id="end-drill">End practice</button></div>`;
+    el.innerHTML = `<div class="drill"><b>${set.name} practice</b><span>${n === 1 ? esc(DATA[drill.set][drill.pool[0]].n) : n + ' cases · ' + drill.done + ' of ' + n + ' this round'}</span><span class="nostat" title="Practice times stay out of your stats">Not in stats</span><span class="sep"></span><button class="link" id="chg-drill">Change cases</button><button class="link" id="end-drill">End practice</button></div>`;
+    $('#chg-drill').onclick = () => { if (phase === 'idle') go('train'); };
     $('#end-drill').onclick = () => { drill = null; renderEvents(); newScramble(); };
     return;
   }
   el.innerHTML = EV.map(e => `<button class="chip${e === ev ? ' on' : ''}" data-e="${esc(e)}">${esc(e)}</button>`).join('');
+  { const on = el.querySelector('.chip.on'); if (on && el.scrollWidth > el.clientWidth) el.scrollLeft = on.offsetLeft - (el.clientWidth - on.offsetWidth) / 2; }
   $$('#events .chip').forEach(c => c.onclick = () => { if (phase !== 'idle') return; ev = c.dataset.e; cur = null; renderEvents(); renderTools(); renderBand(); showAfter(false); setTime(0); newScramble(); });
 }
 const menuOpen = () => !$('#pop').hidden;
@@ -242,7 +276,8 @@ function scrHTML(textStr) {
     for (let i = 0; i < t.length; i += l.per) rows.push(t.slice(i, i + l.per));
   }
   const cols = Math.max(...rows.map(r => r.length));
-  return rows.map(r => `<div class="srow" style="--cols:${cols};--cw:${cw.toFixed(2)}em;--fs:clamp(14px,2.2vw,${fs}px)">${r.map(x => `<span>${esc(x)}</span>`).join('')}</div>`).join('');
+  const multi = lines.length > 1;
+  return rows.map((r, i) => `<div class="srow" style="--cols:${cols};--cw:${cw.toFixed(2)}em;--fs:clamp(14px,2.2vw,${fs}px)">${r.map(x => `<span>${esc(x)}</span>`).join('')}</div>${multi && i < rows.length - 1 ? '<div class="brk"></div>' : ''}`).join('');
 }
 
 function curScr() { return drill ? drill.cur.scr : cur ? cur.scr : ''; }
@@ -251,6 +286,7 @@ function showScramble() {
   const scr = curScr();
   if (!scr) return;
   $('#scr').innerHTML = scrHTML(scr);
+  { const n = scr.split(/\s+/).filter(Boolean).length; $('#scr').style.setProperty('--pf', (n <= 12 ? 22 : n <= 25 ? 20 : n <= 45 ? 17 : n <= 70 ? 15 : 13) + 'px'); }
   let net = '';
   if (drill) net = drill.cur.v ? drill.cur.v.card : drill.cur.svg || Draw.iso(drill.cur.state, { pal: Draw.LL });
   else if (TAB3.includes(ev)) { try { net = Draw.net(Sim.run(scr)); } catch (e) { net = cur.svg; } }
@@ -264,7 +300,7 @@ function showScramble() {
   } else al.innerHTML = '';
 }
 async function newScramble() {
-  if (drill) { nextCase(); showScramble(); return; }
+  if (drill) { nextCase(); renderEvents(); showScramble(); return; }
   const tok = ++genToken, t = curType(); cur = null;
   const slow = setTimeout(() => { if (tok === genToken && !cur) { $('#scr').innerHTML = '<div class="gen">Generating scramble…</div>'; $('#net').innerHTML = ''; } }, 160);
   try { const x = await take(t); if (tok !== genToken) return; cur = x; }
@@ -277,9 +313,14 @@ async function newScramble() {
 
 /* ---------- drills ---------- */
 function nextCase() {
-  const p = drill.pool; let pick = p[Math.random() * p.length | 0];
-  if (p.length > 1) while (pick === drill.last) pick = p[Math.random() * p.length | 0];
-  drill.last = pick; drill.shown = false;
+  const p = drill.pool;
+  if (!drill.bag || !drill.bag.length) {
+    const b = p.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [b[i], b[j]] = [b[j], b[i]]; }
+    if (b.length > 1 && b[b.length - 1] === drill.last) [b[b.length - 1], b[0]] = [b[0], b[b.length - 1]];   // never the same case twice in a row
+    drill.bag = b;
+  }
+  const pick = drill.bag.pop();
+  drill.last = pick; drill.shown = false; drill.done = p.length - drill.bag.length;
   const c = DATA[drill.set][pick], meta = SETMETA[drill.set], mode = meta.mode, vk = meta.view;
   if (vk) {
     // a spare turn of the top layer, as in real solves, wherever the stored algorithm was checked to allow it
@@ -294,7 +335,7 @@ function nextCase() {
   drill.cur = { i: pick, scr, state: Sim.run(scr), alg: c.algs[0], name: c.n };
 }
 function startDrill(set, pool) {
-  drill = { set, pool, last: -1, shown: false }; nextCase();
+  drill = { set, pool, last: -1, shown: false, bag: null, done: 0 }; nextCase();
   closeModal(); go('timer'); renderEvents(); showScramble(); renderBand(); setTime(0); showAfter(false);
 }
 
@@ -322,14 +363,22 @@ function startRun() {
   document.body.classList.toggle('veil', !!store.hide); tick();
 }
 const T = $('#t');
-const setTime = ms => { T.innerHTML = clockHTML(ms); };
+let lastEw = 0;
+function sizeFor(ms, pen, dnf) {
+  let ew = 1.94;
+  if (!dnf) { const cs = Math.floor(ms / 10), m = Math.floor(cs / 6000), digits = String(Math.floor((cs % 6000) / 100)).length; ew = m ? 2.632 + (String(m).length - 1) * 0.555 : 1.285 + 0.555 * (digits - 1); if (m && digits < 2) ew = 2.632; ew += pen === '2' ? 0.4 : 0; }
+  if (ew === lastEw) return; lastEw = ew;
+  T.style.setProperty('--ew', ew); T.style.setProperty('--ewr', Math.max(ew, 1.84));   // while running it is never smaller than a two-digit time, so it does not jump at 10 s
+}
+const setTime = ms => { sizeFor(ms); T.innerHTML = clockHTML(ms); };
 const bucket = () => drill ? 'drill:' + drill.set : 'ev:' + ev;
 const mine = () => store.solves.filter(s => s.b === bucket());
 let lastPrev = [], lastQuip = '', recentQuips = [];
 // a finished solve: OK shows the time, +2 shows the new total, DNF shows DNF until the next solve starts
 function showTime(s) {
   T.classList.toggle('is-dnf', s.pen === 'DNF');
-  if (s.pen === 'DNF') { T.innerHTML = 'DNF'; return; }
+  if (s.pen === 'DNF') { sizeFor(0, '0', true); T.innerHTML = 'DNF'; return; }
+  sizeFor(val(s), s.pen);
   T.innerHTML = clockHTML(val(s)) + (s.pen === '2' ? '<sup class="p2">+2</sup>' : '');
 }
 function showAfter(on) {
@@ -405,7 +454,10 @@ addEventListener('keyup', e => {
 }, true);
 $('#clock').addEventListener('pointerdown', e => { if (e.target.closest('.after, .quip, button, a')) return; if (phase !== 'running') { e.preventDefault(); closeMenu(); down(); } });
 addEventListener('pointerup', () => { if (phase === 'hold' || phase === 'ready') up(); });
-addEventListener('pointerdown', e => { if (phase === 'running') { e.preventDefault(); down(); } }, true);
+let tapGuard = 0;
+addEventListener('pointerdown', e => { if (phase === 'running') { e.preventDefault(); e.stopPropagation(); if (e.pointerType !== 'mouse') tapGuard = performance.now() + 380; down(); } }, true);
+addEventListener('click', e => { if (performance.now() < tapGuard) { e.preventDefault(); e.stopPropagation(); } }, true);
+addEventListener('pointercancel', () => { if (phase === 'hold') up(); });
 // a mouse click should not leave a focus ring or an armed button behind
 addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); if (b && e.detail > 0 && !b.closest('#sheet')) b.blur(); }, true);
 
@@ -463,6 +515,8 @@ for (const id of ORDER) {
   let g = NAV.find(x => x[0] === key); if (!g) NAV.push(g = [key, [], m.puzzle]); g[1].push(id);
 }
 NAV.sort((a, b) => rank(a[2]) - rank(b[2]));   // stable: groups inside a puzzle keep their order
+// community nicknames and one extra algorithm per OLL case (every one was run on a model, see tools/oll-nick.cjs)
+if (window.OLLX && DATA.oll) for (const c of DATA.oll) { c.nick = OLLX.nick[c.n]; const x = OLLX.alg[c.n]; if (x) c.algs = c.algs.concat(x); }
 }
 let tset = 'oll', q = '';
 const learnedKey = (s, i) => s + ':' + i;
@@ -475,28 +529,71 @@ const diagram = (set, c) => {
   return m === 'iso' ? Draw.iso(st, { pal: Draw.LL }) : Draw.ll(st, m);
 };
 const cardCache = {};
+const pickKey = c => c.g + '|' + c.n;
+const pickedSet = set => new Set(store.pick[set] || []);
+const pickedIdx = set => { const k = pickedSet(set); return DATA[set].map((c, i) => k.has(pickKey(c)) ? i : -1).filter(i => i >= 0); };
+let tView = [];   // the cases on screen right now (after the search box), as indexes
+function setPick(set, idxs, on) {
+  const k = pickedSet(set);
+  for (const i of idxs) { const key = pickKey(DATA[set][i]); if (on) k.add(key); else k.delete(key); }
+  store.pick[set] = [...k]; save();
+}
+// update the ticks and counts in place, so the list keeps its scroll position
+function refreshPick() {
+  const k = pickedSet(tset), n = pickedIdx(tset).length;
+  $$('#cases .case').forEach(b => { const on = k.has(pickKey(DATA[tset][+b.dataset.i])); b.classList.toggle('sel', on); b.setAttribute('aria-checked', String(on)); });
+  $$('#cases [data-pg]').forEach(b => { const ids = b.dataset.pg.split(',').map(Number), all = ids.every(i => k.has(pickKey(DATA[tset][i]))); b.textContent = all ? 'Clear group' : 'Select group'; });
+  const cnt = $('#sel-n'); if (cnt) cnt.textContent = n;
+  const go1 = $('#drill-all'); go1.textContent = n ? 'Train ' + n + (n === 1 ? ' case' : ' cases') : 'Train'; go1.disabled = !n;
+}
 function renderTrain() {
+  const prac = store.tmode, keep = $('#cases').scrollTop;
   $('#side').innerHTML = NAV.map(([h, ids]) => `<div style="margin-bottom:22px"><h6>${esc(h)}</h6>${ids.map(id => `<button data-s="${id}" class="${id === tset ? 'on' : ''}">${esc(SETMETA[id].name)}<em>${DATA[id].length}</em></button>`).join('')}</div>`).join('');
-  $$('#side button').forEach(b => b.onclick = () => { tset = b.dataset.s; q = ''; $('#find').value = ''; renderTrain(); });
+  $$('#side button').forEach(b => b.onclick = () => { tset = b.dataset.s; q = ''; $('#find').value = ''; $('#cases').scrollTop = 0; renderTrain(); });
   const list = DATA[tset], meta = SETMETA[tset];
   const learned = list.filter((_, i) => isLearned(tset, i)).length;
   $('#tt').textContent = meta.name;
-  $('#tp').textContent = `${list.length} cases${learned ? ' · ' + learned + ' learned' : ''} — ${meta.blurb}`;
+  $('#tp').textContent = prac ? `${list.length} cases. Tick the ones you want to drill, then press Train. Practice times are not added to your stats.` : `${list.length} cases${learned ? ' · ' + learned + ' learned' : ''} — ${meta.blurb}`;
+  $$('#tmode button').forEach(b => b.setAttribute('aria-checked', String((b.dataset.m === '1') === prac)));
   const groups = []; list.forEach((c, i) => {
-    if (q && !(c.n + ' ' + c.g).toLowerCase().includes(q)) return;
+    if (q && !(c.n + ' ' + c.g + ' ' + (c.nick || '')).toLowerCase().includes(q)) return;
     let g = groups.find(x => x.name === c.g); if (!g) groups.push(g = { name: c.g, items: [] }); g.items.push(i);
   });
-  const shown = groups.reduce((n, g) => n + g.items.length, 0);
-  $('#drill-all').textContent = q ? `Practice ${shown}` : 'Practice all';
-  $('#drill-all').disabled = !shown;
-  $('#cases').innerHTML = shown ? groups.map(g => `<section class="group"><div class="gh"><h3>${esc(g.name || meta.name)}<em>${g.items.length}</em></h3><button class="link" data-g="${g.items.join(',')}">Practice</button></div><div class="grid">${g.items.map(i => {
-    const k = tset + i; const svg = cardCache[k] || (cardCache[k] = diagram(tset, list[i]));
-    return `<button class="case" data-i="${i}">${isLearned(tset, i) ? '<i></i>' : ''}${svg}<b>${esc(list[i].n)}</b></button>`;
+  tView = groups.flatMap(g => g.items);
+  const shown = tView.length, picked = pickedSet(tset);
+  $('#selbar').hidden = !prac; $('#train').classList.toggle('prac', prac);
+  if (prac) {
+    $('#selbar').innerHTML = `<span class="cnt"><b id="sel-n">0</b> selected</span><button class="link" data-sel="all">${q ? 'Select shown' : 'Select all'}</button><button class="link" data-sel="new">Select not learned</button><button class="link" data-sel="none">Clear</button>`;
+    $$('#selbar [data-sel]').forEach(b => b.onclick = () => {
+      const w = b.dataset.sel;
+      if (w === 'none') setPick(tset, list.map((_, i) => i), false);
+      else if (w === 'all') setPick(tset, tView, true);
+      else setPick(tset, tView.filter(i => !isLearned(tset, i)), true);
+      refreshPick();
+    });
+  } else {
+    $('#drill-all').textContent = q ? `Practice ${shown}` : 'Practice all';
+    $('#drill-all').disabled = !shown;
+  }
+  $('#cases').innerHTML = shown ? groups.map(g => `<section class="group"><div class="gh"><h3>${esc(g.name || meta.name)}<em>${g.items.length}</em></h3><button class="link" ${prac ? `data-pg="${g.items.join(',')}">Select group` : `data-g="${g.items.join(',')}">Practice`}</button></div><div class="grid">${g.items.map(i => {
+    const k = tset + i, c = list[i], on = picked.has(pickKey(c)); const svg = cardCache[k] || (cardCache[k] = diagram(tset, c));
+    return `<button class="case${on ? ' sel' : ''}" data-i="${i}"${prac ? ` role="checkbox" aria-checked="${on}"` : ''}>${prac ? '<u class="ck"></u><span class="inf" data-info="1" title="Open this case" role="button">i</span>' : ''}${isLearned(tset, i) ? '<i></i>' : ''}${svg}<b>${esc(c.n)}</b>${c.nick ? `<small>${esc(c.nick)}</small>` : ''}</button>`;
   }).join('')}</div></section>`).join('') : '<div class="empty">No case matches that.</div>';
-  $$('#cases .case').forEach(b => b.onclick = () => openCase(tset, +b.dataset.i));
+  $$('#cases .case').forEach(b => b.onclick = e => {
+    const i = +b.dataset.i;
+    if (!prac || e.target.closest('[data-info]')) { openCase(tset, i); return; }
+    setPick(tset, [i], !pickedSet(tset).has(pickKey(list[i]))); refreshPick();
+  });
   $$('#cases [data-g]').forEach(b => b.onclick = () => startDrill(tset, b.dataset.g.split(',').map(Number)));
-  $('#drill-all').onclick = () => startDrill(tset, groups.flatMap(g => g.items));
+  $$('#cases [data-pg]').forEach(b => b.onclick = () => {
+    const ids = b.dataset.pg.split(',').map(Number), k = pickedSet(tset);
+    setPick(tset, ids, !ids.every(i => k.has(pickKey(list[i])))); refreshPick();
+  });
+  $('#drill-all').onclick = () => { if (prac) { const idx = pickedIdx(tset); if (idx.length) startDrill(tset, idx); } else startDrill(tset, tView); };
+  if (prac) refreshPick();
+  $('#cases').scrollTop = keep;
 }
+$$('#tmode button').forEach(b => b.onclick = () => { store.tmode = b.dataset.m === '1'; save(); renderTrain(); });
 $('#find').oninput = e => { q = e.target.value.trim().toLowerCase(); renderTrain(); };
 
 /* ---------- learn ---------- */
@@ -533,53 +630,92 @@ function renderLearn() {
 function algHTML(tokens, k) {
   return tokens.map((t, i) => `<span class="${k === 0 ? '' : i < k - 1 ? 'd' : i === k - 1 ? 'cur' : 'u'}">${esc(disp(t))}</span>`).join(' ');
 }
+let CS = null;   // the case sheet's move player, so closing the sheet can stop it
 function openCase(set, i) {
+  if (CS) CS.halt();
   const c = DATA[set][i], meta = SETMETA[set], vk = meta.view, eng = !!c.svg && !vk, memo = {};
-  let which = 0, k = 0;
   const base = eng || vk ? null : Sim.run(Sim.deRotate(c.setup));
-  const draw = () => {
-    const tk = toks(c.algs[which]);
-    const st = eng || vk ? null : Sim.apply(base.map(x => ({ ...x })), Sim.parse(tk.slice(0, k).join(' ')));
-    let vw = null;
-    if (vk) { try { vw = Views.views(vk[0], vk[1], c.setup, tk.slice(0, k).join(' '), memo); } catch (e) { vw = { top: null, a: '', b: '' }; } }
+  let which = 0, tk = [], stage = null, hasTop = false;
+  const view = k => { try { return Views.views(vk[0], vk[1], c.setup, tk.slice(0, k).join(' '), memo); } catch (e) { return { top: null, a: '', b: '' }; } };
+  // the cube(s) turn on their own stage; if a puzzle's moves cannot be animated the pictures simply jump, as before
+  const plainStage = () => ({
+    count: vk ? (view(0).b ? 2 : 1) : 2, bind(list) { this.els = [...list]; }, finish() {}, cancel() {}, busy: () => false,
+    show(p) { const [a, b] = vk ? [view(p).a, view(p).b] : (() => { const st = Sim.apply(base.map(x => ({ ...x })), Sim.parse(tk.slice(0, p).join(' '))); return [Draw.iso(st, { pal: Draw.LL }), Draw.iso(st, { pal: Draw.LL, view: 1 })]; })(); this.els.forEach((el, n) => { el.innerHTML = n ? b || '' : a; }); },
+    walk(from, to) { this.show(to); return Promise.resolve(); }
+  });
+  const prep = () => {
+    tk = toks(c.algs[which]); stage = null;
+    if (eng) return;
+    try {
+      const [kind, v] = vk ? vk[0].split(':') : ['cube', '3'];
+      let at, mk;
+      if (kind === 'cube') {
+        const memoSt = [base]; at = k => { while (memoSt.length <= k) memoSt.push(Sim.apply(memoSt[memoSt.length - 1].map(x => ({ ...x })), Sim.parse(tk[memoSt.length - 1]))); return memoSt[k]; };
+        mk = () => Anim.stage({ N: 3, pal: Draw.LL, corners: [[1, 1, 1], [-1, -1, -1]], stateAt: at, tokenAt: j => tk[j], turns: t => Anim.fromSim(Sim, Sim.parse(t)) });
+      } else if (kind === 'nxn') {
+        const r = Views.nxnRig(+v, vk[1], c.setup);
+        at = k => r.view(tk.slice(0, k).join(' '));
+        mk = () => Anim.stage({ N: r.N, pal: Draw.LL, corners: r.corners, post: Anim.rotList(r.post), stateAt: at, tokenAt: j => tk[j], turns: t => Anim.fromNxN(r.sim, t) });
+      } else {
+        const r = Views.polyRig(v, c.setup);
+        at = k => r.at(tk.slice(0, k).join(' '));
+        mk = () => Anim.stage({ count: r.count, render: r.render, stateAt: at, tokenAt: j => tk[j], turns: t => Views.polyTurns(v, t) });
+      }
+      at(tk.length);   // every position of this algorithm can be built, or we fall back
+      stage = mk();
+    } catch (e) { stage = null; }
+  };
+  const render = k0 => {
+    prep(); if (!eng && !stage) stage = plainStage();
+    hasTop = !!vk && !!view(0).top;
+    const two = !eng && stage.count > 1;
     $('#sheet').innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px">
-        <div><h2>${esc(meta.name)} · ${esc(c.n)}</h2><div class="sub">${esc(c.g)}</div></div>
+        <div><h2>${esc(meta.name)} · ${esc(c.n)}</h2><div class="sub">${esc(c.g)}${c.nick ? ' · ' + esc(c.nick) : ''}</div></div>
         <button class="ic" id="x" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
       <div class="cs">
         <div class="cs-l">
-          ${vk ? (vw.top ? `<div class="top">${vw.top}</div>` : '') : eng ? `<div class="top engpic">${c.svg}</div>` : (meta.mode === 'iso' ? '' : `<div class="top">${meta.mode === 'oll' ? Draw.ll(base, 'oll') : meta.mode === 'pll' ? Draw.ll(base, 'pll') : Draw.ll(base, 'coll')}</div>`)}
-          ${vk ? `<div class="three${vw.b ? '' : ' one'}">${vw.a}${vw.b || ''}</div>` : eng ? '' : `<div class="three">${Draw.iso(st, { pal: Draw.LL })}${Draw.iso(st, { pal: Draw.LL, view: 1 })}</div>`}
+          ${eng ? `<div class="top engpic">${c.svg}</div>` : vk ? (hasTop ? '<div class="top" id="cstop"></div>' : '') : (meta.mode === 'iso' ? '' : `<div class="top">${Draw.ll(base, meta.mode === 'oll' ? 'oll' : meta.mode === 'pll' ? 'pll' : 'coll')}</div>`)}
+          ${eng ? '' : `<div class="three${two ? '' : ' one'}" id="cs3">${'<div class="ah"></div>'.repeat(two ? 2 : 1)}</div>`}
         </div>
         <div>
-          <div class="alg">${algHTML(tk, k)}</div>
+          <div class="alg" id="csalg"></div>
           ${eng ? '' : `<div class="stepper"><button class="ic" id="pb" aria-label="Previous move"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
-            <input type="range" id="sl" min="0" max="${tk.length}" value="${k}" aria-label="Step through the algorithm">
+            <button class="ic" id="pp" aria-label="Play">${PLAY_SVG}</button>
+            <input type="range" id="sl" min="0" max="${tk.length}" value="0" aria-label="Step through the algorithm">
             <button class="ic" id="pn" aria-label="Next move"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button></div>`}
           ${c.algs.length > 1 ? `<div class="alts">${c.algs.map((a, j) => `<button data-j="${j}" class="${j === which ? 'on' : ''}">${esc(toks(a).map(disp).join(' '))}</button>`).join('')}</div>` : ''}
           <div class="row"><button class="btn" id="pr">Practice this case</button><button class="btn ghost" id="ln">${isLearned(set, i) ? 'Learned ✓' : 'Mark as learned'}</button></div>
         </div>
       </div>`;
     $('#x').onclick = closeModal;
-    if (!eng) {
-      $('#sl').oninput = e => { k = +e.target.value; draw(); $('#sl').focus(); };
-      $('#pb').onclick = () => { k = Math.max(0, k - 1); draw(); };
-      $('#pn').onclick = () => { k = Math.min(tk.length, k + 1); draw(); };
+    if (eng) { $('#csalg').innerHTML = algHTML(tk, 0); CS = null; }
+    else {
+      stage.bind($$('#cs3 .ah'));
+      const tr = CS = track({ stage, len: tk.length,
+        onPos: p => { $('#csalg').innerHTML = algHTML(tk, p); $('#sl').value = p; },
+        afterMove: p => { if (hasTop) $('#cstop').innerHTML = view(p).top || ''; },   // the flat top view changes once the move has landed
+        onPlay: on => setPlayIcon($('#pp'), on) });
+      $('#sl').oninput = e => { tr.stop(); tr.set(+e.target.value, false); };
+      $('#pb').onclick = () => { tr.stop(); tr.set(Math.max(0, tr.pos - 1), true); };
+      $('#pn').onclick = () => { tr.stop(); tr.set(Math.min(tk.length, tr.pos + 1), true); };
+      $('#pp').onclick = () => tr.play();
+      tr.set(k0, false);
     }
-    $$('.alts button').forEach(b => b.onclick = () => { which = +b.dataset.j; k = 0; draw(); });
+    $$('.alts button').forEach(b => b.onclick = () => { which = +b.dataset.j; if (CS) CS.halt(); render(0); });
     $('#pr').onclick = () => startDrill(set, [i]);
     $('#ln').onclick = () => {
       const key = learnedKey(set, i), at = store.learned.indexOf(key);
       if (at < 0) store.learned.push(key); else store.learned.splice(at, 1);
-      save(); draw(); if (screen === 'train') { renderTrain(); }
+      save(); $('#ln').textContent = isLearned(set, i) ? 'Learned ✓' : 'Mark as learned'; if (screen === 'train') { renderTrain(); }
     };
   };
-  draw(); openModal();
+  render(0); openModal();
 }
 
 /* ---------- modal ---------- */
 function openModal() { $('#modal').classList.add('on'); }
-function closeModal() { $('#modal').classList.remove('on'); }
+function closeModal() { $('#modal').classList.remove('on'); if (CS) CS.halt(); }
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 
 const CLOSE = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
@@ -740,7 +876,7 @@ const NOTE = {
   zz: 'EOLine and both F2L blocks are searched for their fewest moves, then OLL and PLL from the library.',
   'two-phase': 'Ignores method and finds a very short solution. Great for learning what is possible, hard to execute by hand.'
 };
-let R = null, method = 'cfop', timerPlay = 0, solver = null, solveJob = 0;
+let R = null, method = 'cfop', solver = null, solveJob = 0;
 const solved = new Map();   // "scramble|method" -> result, so switching tabs is instant
 const is3 = s => s && /^(333|333oh|333ni|333fm|333ft)$/.test(s.code || '') ;
 function solveWith(scramble, m) {
@@ -762,7 +898,7 @@ function orient(m, scramble) {   // white-on-bottom: solve the colour-swapped cu
 }
 function blank(html) { $('#rev').innerHTML = `<div class="blank" style="grid-column:1/-1"><div>${html}</div></div>`; }
 async function renderReview() {
-  stopPlay(); R = null;
+  stopPlay(); if (R) R.stage.cancel(); R = null;
   let s = store.solves.find(x => x.id === reviewId);
   if (!s) { s = store.solves.slice().reverse().find(x => x.kind !== 'drill' && is3(x)); if (s) reviewId = s.id; }
   if (!s) return blank('<h1 style="font-weight:500;font-size:28px;margin-bottom:8px">Nothing to review yet</h1><p>Finish a 3×3 solve, then open it here.</p>');
@@ -786,7 +922,11 @@ async function renderReview() {
 function drawReview(s, run, z, base) {
   const el = $('#rev');
   const tokens = []; run.steps.forEach((st, si) => rtoks(st.moves).forEach(t => tokens.push({ t, si })));
-  R = { s, run, tokens, pos: 0, prefix: (base || s.scr) + (z ? ' z2' : '') };
+  const prefix = (base || s.scr) + (z ? ' z2' : ''), states = [Sim.run(prefix)];
+  tokens.forEach(x => states.push(Sim.apply(states[states.length - 1].map(q => ({ ...q })), Sim.parse(x.t))));   // every position is known up front
+  const stage = Anim.stage({ N: 3, pal: Draw.P, corners: [[1, 1, 1], [-1, -1, -1]], stateAt: k => states[k], tokenAt: i => tokens[i].t, turns: t => Anim.fromSim(Sim, Sim.parse(t)) });
+  R = { s, run, tokens, pos: 0, prefix, stage };
+  R.tr = track({ stage, len: tokens.length, onPos: p => markPos(p), onPlay: on => setPlayIcon($('#play'), on) });
   const ms = val(s), moves = run.count;
   const counts = Object.fromEntries(METHODS.map(([k]) => [k, solved.get((base || s.scr) + '|' + k)]));
   el.innerHTML = `
@@ -809,20 +949,19 @@ function drawReview(s, run, z, base) {
   $$('.stg').forEach(r => r.onclick = () => { const si = +r.dataset.si; let end = 0; tokens.forEach((x, i) => { if (x.si <= si) end = i + 1; }); setPos(end); });
   $('#rs').oninput = e => setPos(+e.target.value);
   $('#rn').onclick = () => stepBy(1); $('#rp').onclick = () => stepBy(-1);
-  $('#play').onclick = togglePlay;
+  $('#play').onclick = () => R.tr.play();
+  stage.bind([$('#c0'), $('#c1')]);
   setPos(0);
 }
 function stepBy(d) {
   if (!R) return;
   let p = R.pos + d;
   while (p > 0 && p < R.tokens.length && isRot(R.tokens[p - 1].t) && d > 0) p += d;
-  setPos(Math.max(0, Math.min(R.tokens.length, p)));
+  R.tr.stop(); R.tr.set(Math.max(0, Math.min(R.tokens.length, p)), true);   // one move (or a turn of the whole cube and the move after it): animated
 }
-function setPos(p) {
-  if (!R) return;
+function setPos(p) { if (!R) return; R.tr.stop(); R.tr.set(p, false); }   // the slider and the stage list jump straight there
+function markPos(p) {
   R.pos = p;
-  const mv = R.tokens.slice(0, p).map(x => x.t).join(' '), st = Sim.run(R.prefix + ' ' + mv);
-  $('#c0').innerHTML = Draw.iso(st); $('#c1').innerHTML = Draw.iso(st, { view: 1 });
   $('#rs').value = p;
   const done = R.tokens.slice(0, p).filter(x => !isRot(x.t)).length, total = R.tokens.filter(x => !isRot(x.t)).length;
   $('#pos').textContent = done + ' / ' + total;
@@ -830,13 +969,7 @@ function setPos(p) {
   const cur = p ? R.tokens[p - 1].si : -1;
   $$('.stg').forEach(r => r.classList.toggle('act', +r.dataset.si === cur));
 }
-function stopPlay() { clearInterval(timerPlay); timerPlay = 0; const b = $('#play'); if (b) b.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>'; }
-function togglePlay() {
-  if (timerPlay) { stopPlay(); return; }
-  if (R.pos >= R.tokens.length) setPos(0);
-  $('#play').innerHTML = '<svg viewBox="0 0 24 24"><path d="M7 5v14M17 5v14"/></svg>';
-  timerPlay = setInterval(() => { if (R.pos >= R.tokens.length) { stopPlay(); return; } stepBy(1); }, 520);
-}
+const stopPlay = () => { if (R) R.tr.stop(); };
 
 /* ---------- boot ---------- */
 applyView(); renderWho(); renderEvents(); renderTools(); renderBand(); setTime(0); showAfter(false); newScramble();
@@ -844,5 +977,5 @@ $$('#wca button').forEach(b => b.onclick = () => { if (b.disabled || phase !== '
 $('#tbtn').onclick = e => { e.stopPropagation(); const open = !menuOpen(); $('#pop').hidden = !open; $('#tbtn').setAttribute('aria-expanded', String(open)); if (open) { const s = $('#pop [aria-selected=true]'); if (s) s.scrollIntoView({ block: 'nearest' }); } };
 document.addEventListener('pointerdown', e => { if (menuOpen() && !e.target.closest('#tmenu')) closeMenu(); });
 const h = location.hash.slice(1); if (['train', 'review'].includes(h)) go(h);
-window.__cubic = { go, openSolve, historyModal, openCase, startDrill, get state() { return { phase, drill, ev, screen, scr: curScr(), type: curType(), wca: store.wca }; } };
+window.__cubic = { setTime, showTime, go, openSolve, historyModal, openCase, startDrill, get state() { return { phase, drill, ev, screen, scr: curScr(), type: curType(), wca: store.wca }; } };
 })();

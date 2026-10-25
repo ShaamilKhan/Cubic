@@ -9,9 +9,10 @@ const check = (name, ok, extra) => { if (!ok) fails++; console.log((ok ? 'PASS '
   const ws = new WebSocket(t.find(x => x.type === 'page').webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
   let id = 0; const p = new Map(), errs = [];
   ws.onmessage = e => { const d = JSON.parse(e.data); if (d.id && p.has(d.id)) { p.get(d.id)(d); p.delete(d.id); } if (d.method === 'Runtime.exceptionThrown') errs.push(d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text); };
-  const call = (m, a = {}) => new Promise(r => { const i = ++id; p.set(i, r); ws.send(JSON.stringify({ id: i, method: m, params: a })); });
+  // a call that never answers (headless Edge occasionally drops a screenshot) must not hang the whole run
+  const call = (m, a = {}) => new Promise(r => { const i = ++id, to = setTimeout(() => { p.delete(i); console.log('(no answer from the browser for ' + m + ', carrying on)'); r({ result: { result: { value: undefined } } }); }, m === 'Page.captureScreenshot' ? 15000 : 60000); p.set(i, d => { clearTimeout(to); r(d); }); ws.send(JSON.stringify({ id: i, method: m, params: a })); });
   const ev = async x => { const r = await call('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); if (r.result.exceptionDetails) return 'ERR ' + (r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text); return r.result.result.value; };
-  const shot = async n => { const r = await call('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync('C:/Projects/Cubetimer/tools/.work/' + n + '.png', Buffer.from(r.result.data, 'base64')); };
+  const shot = async n => { const r = await call('Page.captureScreenshot', { format: 'png' }); if (!r.result || !r.result.data) return; fs.writeFileSync('C:/Projects/Cubetimer/tools/.work/' + n + '.png', Buffer.from(r.result.data, 'base64')); };
   const key = (ty, k, c, v) => call('Input.dispatchKeyEvent', { type: ty, key: k, code: c, windowsVirtualKeyCode: v, text: k === ' ' ? ' ' : undefined });
   const click = async sel => { const r = await ev(`(()=>{const e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;const b=e.getBoundingClientRect();return [b.left+b.width/2,b.top+b.height/2]})()`); if (!r || r === null || typeof r === 'string') return false; for (const ty of ['mouseMoved', 'mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type: ty, x: r[0], y: r[1], button: 'left', clickCount: 1 }); return true; };
   const timeText = () => ev(`document.querySelector('#t').textContent`);

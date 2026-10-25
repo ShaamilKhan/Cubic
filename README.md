@@ -26,6 +26,7 @@ node tools/mk-polypal.cjs    # app/poly-pal.js                      Pyraminx / S
 node tools/build-train.cjs   # app/train-data.js                    keeps only cases whose algorithm verifiably solves them
 node tools/build-pics.cjs    # app/learn-pics.js                    pictures for the Learn guides
 node tools/mkalg.cjs         # app/algsets.js                       algorithm library used by the method review
+node tools/oll-nick.cjs      # app/oll-extra.js                     OLL nicknames + an extra algorithm each, every one run on a model
 ```
 
 ## Tests
@@ -38,6 +39,13 @@ node tools/verify-views.cjs    # every Train case renders in its 3D / top view
 node tools/live6.cjs           # in a real browser: timer, buttons, history, settings, stats
 node tools/live7.cjs           # in a real browser: per-puzzle stats, calendar
 node tools/live8.cjs           # in a real browser: whole-app sweep
+node tools/live9.cjs           # display settings, 3BLD review
+node tools/live10.cjs          # inspection mode
+node tools/live11.cjs          # Train Practice mode: tick cases, drill, stats exclusion
+node tools/test-anim.cjs       # move animation: last frame of every move equals the model, all puzzles
+node tools/live12.cjs          # move animation in a browser: Review player and every case sheet
+node tools/live13.cjs          # phones, tablets, desktop: layout, touch, timer size and centring
+node tools/shots.cjs [dir]     # screenshots of every screen at ten screen sizes
 ```
 
 The browser suites drive Microsoft Edge (already on Windows) over its debugging port; they install nothing. Edit the `EDGE` path at the top of each file if yours is elsewhere.
@@ -53,6 +61,10 @@ The browser suites drive Microsoft Edge (already on Windows) over its debugging 
 
 - **Learn guides:** 3×3 and 2×2 guides have every algorithm checked on a model of the cube. 4×4 to 7×7 have their parity algorithms checked. Clock, Megaminx, Pyraminx, Skewb and Square-1 follow published beginner guides; their move letters could not be machine-checked, and the Skewb and Pyraminx pictures assume one corner letter maps to the engine's (see the note in the Skewb guide).
 - **Train:** Roux and Mehta sets are missing because no verified algorithm data was available. About 240 dataset cases were dropped because their algorithm did not solve them.
+- **OLL nicknames:** from the CubeHead "How to Learn OLL in One Month" sheet. A nickname or extra algorithm is kept only if, run on a model, it orients exactly that one OLL case without touching the bottom two layers (`tools/oll-nick.cjs`).
+- **Train > Practice:** tick any cases in any set and drill just those, one round at a time in random order. Drill times are saved for review but never count in Stats.
+- **Move animation:** the Play, Back and Next buttons in Review and in every Train case sheet turn the layer with the camera fixed. 3×3 to 5×5, Pyraminx, Skewb and Megaminx are animated; the end of every move is checked against the model (`tools/test-anim.cjs`). The slider still jumps. With reduced motion switched on, moves jump instead.
+- **Phones:** upright phones get a bottom tab bar and a timer that fills the width; phones on their side keep the timer in the middle with the scramble above. Touch: hold, let go to start, tap to stop.
 - **Method review:** 3×3 only. The solutions are searched step by step; they are checked to solve your scramble but are not proven shortest.
 - **Data:** solves, name and settings live in your browser's storage. Clearing site data erases them; use Settings > Export to keep a copy.
 

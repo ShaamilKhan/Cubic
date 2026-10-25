@@ -457,3 +457,174 @@ body.no-band .band{display:none}
 .insp svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .insp:hover{color:var(--fg,#fff)}
 .insp[aria-pressed=true]{color:#00e676;border-color:#00e676;background:rgba(0,230,118,.08)}
+
+/* train: Browse / Practice, tick-to-select cards */
+.ph .acts{flex-wrap:wrap;justify-content:flex-end}
+.btn:disabled{opacity:.35;cursor:default}.btn:disabled:hover{background:var(--ink)}
+.selbar{display:flex;align-items:center;gap:18px;padding:12px 2px 2px;font-size:13px;color:var(--mid)}
+.selbar .cnt b{color:var(--ink);font-weight:600;font-family:var(--mono);margin-right:4px}
+.case small{font-size:11px;color:var(--dim);margin-top:-6px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.case .ck{position:absolute;top:9px;left:9px;width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line2);background:transparent;transition:.15s}
+.case.sel{border-color:rgba(47,209,88,.7);background:rgba(47,209,88,.07)}
+.case.sel .ck{background:var(--go);border-color:var(--go)}
+.case.sel .ck::after{content:"";position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;border:solid #000;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.case .inf{position:absolute;top:6px;right:7px;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font:italic 600 11px var(--serif,Georgia,serif);color:var(--dim);transition:.15s}
+.case .inf:hover{color:var(--ink);background:var(--s3,rgba(255,255,255,.08))}
+#cases .case[role=checkbox] i{right:30px}
+.drill .nostat{font-size:11px;letter-spacing:.03em;padding:2px 9px;border-radius:999px;border:1px solid var(--line2);color:var(--dim)}
+
+/* moves play: the pictures swing out of their frame while a layer turns, so they must not be clipped */
+.ah{min-width:0}.ah svg,#c0 svg,#c1 svg{overflow:visible}
+.stepper .ic{border:1px solid var(--line)}
+
+
+/* ================================================================
+   Phones, tablets and everything between.
+   The timer is sized from the room it really has (container units) and from the width of its own text, so it is as big as the screen
+   allows and never touches anything. --ew is the text's width in em (set by app.js); --res is room kept for things under the timer.
+   ================================================================ */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html,body{overscroll-behavior:none}
+@supports (height:100dvh){html,body{height:100dvh}}
+body{-webkit-tap-highlight-color:transparent}
+button,.chip,nav,.case{touch-action:manipulation}
+.clock{touch-action:none;-webkit-touch-callout:none}
+.events{position:relative}
+.hk{display:inline}.ht{display:none}
+@media(pointer:coarse){.hk{display:none}.ht{display:inline}}
+nav button svg{display:none}
+.brk{display:none}
+
+:root{--tcap:clamp(96px,15vw,280px);--rcap:clamp(120px,20vw,360px);--navh:0px}
+.mid{container-type:size;--res:44px;--side:0px}
+#t{--ew:1.285;--ewr:1.84;font-size:max(48px,min(var(--tcap),calc((100cqw - 2 * var(--side) - 24px) / var(--ew)),calc(100cqh - var(--res))))}
+body.run #t,body.hold #t{font-size:max(48px,min(var(--rcap),calc((100vw - 24px) / var(--ewr)),calc(100vh - 80px)))}
+@supports (height:100dvh){body.run #t,body.hold #t{font-size:max(48px,min(var(--rcap),calc((100vw - 24px) / var(--ewr)),calc(100dvh - 80px)))}}
+body.run .under,body.hold .under{display:none}
+@media(min-width:1001px){.mid{--side:calc(clamp(230px,23vw,340px) + 24px)}body.no-img .mid{--side:0px}}
+
+/* wide tablets and small laptops: the puzzle bar would not fit on one line */
+@media(max-width:1180px){
+  .evbar{grid-template-columns:1fr;gap:10px;justify-items:center}.evbar .events{grid-column:1;max-width:100%}.mode{grid-column:1;justify-self:center}
+}
+@media(max-width:1000px){
+  :root{--tcap:clamp(96px,26vw,300px);--rcap:clamp(120px,32vw,420px)}
+  .hr{display:flex;align-items:center}
+  #timer{overflow:hidden}
+  .train{grid-template-columns:minmax(0,1fr);height:auto;flex:none}
+  .side{scrollbar-width:none;flex:none}.side::-webkit-scrollbar{display:none}
+  .panel{min-height:auto}
+  .cases{overflow:visible;margin-right:0;padding-right:0}
+  /* Review: picture and player stay in view while the move list scrolls under them */
+  .rev{display:flex;flex-direction:column;gap:14px;height:auto;min-height:0;flex:none}
+  .rev>*,.rv-l>*{flex:none}
+  .rv-l{display:contents}
+  .rv-h{order:1}.rv-sc{order:2}.meths{order:3}.rv-r{order:4}.note{order:5}.stages{order:6;overflow:visible;max-height:none;margin-right:0;padding-right:0}
+  .rv-r{position:sticky;top:0;z-index:5;background:var(--bg);padding:6px 0 10px;gap:12px;justify-content:flex-start}
+  .cubes svg{max-height:200px}
+}
+
+/* ---- any small screen: phone upright, phone on its side ---- */
+@media(max-width:700px),(max-height:520px){
+  .chip{padding:9px 13px;font-size:14px}
+  .mode{flex-wrap:wrap;justify-content:center;gap:8px}
+  .insp{margin-left:0}
+  .seg2 button{padding:7px 15px;font-size:13px}
+  .tbtn{padding:8px 12px 8px 14px;font-size:13px;max-width:170px}
+  /* the scramble flows and wraps like text, at the biggest size that fits */
+  .scr{flex-direction:row;flex-wrap:wrap;justify-content:center;align-content:flex-start;gap:3px .55em;min-height:0;font-size:var(--pf,20px);padding:0 2px}
+  .srow{display:contents}
+  .srow span{min-width:2.15em;line-height:1.35}
+  .brk{display:block;flex-basis:100%;height:0}
+  .scr-tools{margin-top:2px}.scr-tools .ic{width:42px;height:42px}
+  .algline{height:auto;min-height:20px;font-size:13px;padding:0 8px}
+  .mid{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;align-items:stretch;gap:4px;--side:0px}
+  .clock{grid-column:1;padding:0;width:100%;height:100%;min-height:0}
+  .net{grid-column:1;grid-row:2;justify-self:center;width:min(170px,46vw)}
+  .net svg{max-height:96px;min-height:0}.net-l{display:none}
+  .under{margin-top:2px;padding:0 6px;text-align:center;font-size:13px}
+  .after{flex-wrap:wrap;justify-content:center;gap:6px}
+  .after button{padding:10px 17px;font-size:15px}
+  .after .dv{display:none}
+  .quip{font-size:14px;max-width:34ch}
+  .band{padding-top:10px;row-gap:8px;grid-template-columns:minmax(0,1fr)}
+  .stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;flex-wrap:nowrap}
+  .stat b{font-size:19px}.stat span{font-size:11px}
+  .recent{justify-content:flex-start;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}.recent::-webkit-scrollbar{display:none}.recent button{flex:none}
+  .events{scrollbar-width:none;justify-content:flex-start;width:100%}.events::-webkit-scrollbar{display:none}
+  /* sheets */
+  .modal{padding:10px}
+  .sheet{padding:20px 16px;border-radius:18px;max-height:calc(100dvh - 20px)}
+  .sheet h2{font-size:21px}
+  .cs{gap:18px}.cs-l .top{width:min(200px,60vw);height:min(200px,60vw)}
+  .alg{font-size:16px}
+  .stepper .ic,.player .ic{width:42px;height:42px}
+  .sv-facts{grid-template-columns:repeat(2,auto)}
+  .field.name .find{width:140px}
+  /* Train */
+  .ph{flex-direction:column;align-items:stretch;gap:12px}
+  .ph h1{font-size:28px}
+  .ph .acts{justify-content:flex-start}
+  .find{flex:1 1 100%;min-width:0;width:auto;padding:11px 16px;font-size:16px}
+  .ph .acts .btn{flex:1 1 auto}
+  .grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .case{padding:10px 4px 9px;gap:6px}
+  .case svg{width:100%;max-width:84px;height:auto;aspect-ratio:1}
+  .case b{font-size:12px}.case small{font-size:10.5px}
+  .selbar{gap:14px;flex-wrap:wrap}
+  #train.prac #drill-all{position:fixed;left:14px;right:14px;bottom:calc(var(--navh) + env(safe-area-inset-bottom,0px) + 12px);z-index:18;width:auto;padding:15px;font-size:15px;box-shadow:0 10px 30px rgba(0,0,0,.75)}
+  #train.prac .cases{padding-bottom:88px}
+  .rv-h h1{font-size:48px}
+}
+
+/* ---- phone, upright: bottom tab bar, big timer in the middle of the screen ---- */
+@media(max-width:700px) and (orientation:portrait){
+  :root{--tcap:460px;--rcap:560px;--navh:62px}
+  header{height:52px;padding:0 14px;grid-template-columns:1fr auto;gap:8px}
+  .logo{font-size:15px}.logo i{width:18px;height:18px}
+  .who{max-width:96px}
+  main{height:calc(100% - 52px - var(--navh) - env(safe-area-inset-bottom,0px))}
+  .screen{padding:0 14px 12px}
+  nav{position:fixed;left:0;right:0;bottom:0;width:auto;justify-self:stretch;z-index:25;border-radius:0;border:0;border-top:1px solid var(--line);background:rgba(0,0,0,.94);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));gap:0;justify-content:space-around}
+  nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;font-size:11px;font-weight:500;border-radius:10px;color:var(--dim);background:none}
+  nav button.on{background:none;color:var(--ink)}
+  nav button svg{display:block;width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .mid{--res:150px}
+  body.no-img .mid{--res:44px}
+  .evbar{gap:8px}
+}
+/* short phones have no room for the picture or the stats under the timer: the timer gets the space instead */
+@media(max-width:700px) and (orientation:portrait) and (max-height:720px){
+  .net{display:none}
+  .mid{--res:44px}
+  .band .hd{display:none}
+  .band{padding-top:8px}
+}
+@media(max-width:700px) and (orientation:portrait) and (max-height:600px){
+  .band{display:none}
+  .scr{max-height:5.4em;overflow:hidden}
+}
+
+/* ---- phone on its side: the timer is the middle of the whole screen; scramble sits over the top, picture in the corner ---- */
+@media(max-height:520px) and (orientation:landscape){
+  :root{--tcap:min(62dvh,48vw);--rcap:min(78dvh,60vw)}
+  header{height:44px;padding:0 14px;grid-template-columns:auto 1fr auto;gap:8px}
+  nav{justify-self:center}nav button{padding:5px 14px}
+  main{height:calc(100% - 44px)}
+  .screen{padding:0 14px 8px}
+  .evbar{grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;justify-items:stretch}
+  .evbar .events{grid-column:1;padding-bottom:0;min-height:34px;max-width:none;min-width:0;overflow-x:auto}
+  .mode{grid-column:2;justify-self:end;flex-wrap:nowrap}
+  .evbar,.scr,.algline{position:relative;z-index:3}
+  .scr{font-size:min(var(--pf,20px),16px);margin-top:2px}
+  .scr-tools{position:absolute;left:12px;bottom:8px;margin:0;z-index:3;gap:4px}.scr-tools .ic{width:40px;height:40px}
+  .mid{position:relative;grid-template-columns:minmax(0,1fr);grid-template-rows:none;--res:0px}
+  .clock{grid-column:1}
+  .net{position:absolute;right:0;bottom:0;grid-column:auto;grid-row:auto;width:clamp(110px,17vw,150px)}
+  .band{display:none}
+  .rv-h h1{font-size:40px}
+}
+@media(max-width:700px) and (max-height:520px) and (orientation:landscape){
+  .insp{padding:0 10px}
+  .tbtn{max-width:130px}
+}

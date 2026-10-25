@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#000000">
 <title>Cubic — speedcubing timer, trainer and guides</title>
 <meta name="description" content="A clean AMOLED speedcubing timer with official WCA scrambles for every puzzle, algorithm trainer, step-by-step guides and stats. Your data stays in your browser.">
@@ -19,11 +22,11 @@
 <header>
   <a class="logo" href="#timer" id="logo" aria-label="Cubic, go to the timer"><i><b style="background:#fff"></b><b style="background:#009b48"></b><b style="background:#b71234"></b><b style="background:#0046ad"></b></i>Cubic</a>
   <nav id="nav" aria-label="Main">
-    <button data-s="timer" class="on">Timer</button>
-    <button data-s="train">Train</button>
-    <button data-s="learn">Learn</button>
-    <button data-s="stats">Stats</button>
-    <button data-s="review">Review</button>
+    <button data-s="timer" class="on"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 1.6M9.5 3h5"/></svg><span>Timer</span></button>
+    <button data-s="train"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.6"/></svg><span>Train</span></button>
+    <button data-s="learn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 0 4 20.5zM20 5.5A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 1 1.5 1.5z"/></svg><span>Learn</span></button>
+    <button data-s="stats"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-8M12 20V5M19 20v-5"/></svg><span>Stats</span></button>
+    <button data-s="review"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.6-5.9M4 4v4.6h4.6"/><path d="M10.5 9.6v4.8l3.9-2.4z"/></svg><span>Review</span></button>
   </nav>
   <div class="hr"><button class="warn" id="savewarn" hidden title="This browser would not let the app save. Export a backup from Settings so nothing is lost.">Not saving</button><button class="who" id="who" hidden></button><button class="ic" id="settings" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button></div>
 </header>
@@ -55,7 +58,7 @@
         <div id="t">0<small>.00</small></div>
         <div class="solving" id="solving" aria-hidden="true"><i></i><i></i><i></i></div>
         <div class="under">
-          <span id="hint">Hold <kbd>space</kbd> and release to start</span>
+          <span id="hint"><span class="hk">Hold <kbd>space</kbd> and release to start</span><span class="ht">Touch and hold, then let go to start</span></span>
           <p class="quip" id="quip" aria-live="polite" hidden></p>
           <div class="after" id="after">
             <button data-pen="0">OK</button><button data-pen="2">+2</button><button data-pen="DNF">DNF</button>
@@ -85,8 +88,9 @@
       <div class="panel">
         <div class="ph">
           <div><h1 id="tt"></h1><p id="tp"></p></div>
-          <div class="acts"><input class="find" id="find" type="search" placeholder="Find a case" aria-label="Find a case"><button class="btn" id="drill-all">Practice all</button></div>
+          <div class="acts"><input class="find" id="find" type="search" placeholder="Find a case" aria-label="Find a case"><div class="seg2" id="tmode" role="radiogroup" aria-label="Train mode"><button data-m="0" role="radio">Browse</button><button data-m="1" role="radio">Practice</button></div><button class="btn" id="drill-all">Practice all</button></div>
         </div>
+        <div class="selbar" id="selbar" hidden></div>
         <div class="cases" id="cases"></div>
       </div>
     </div>
@@ -128,6 +132,7 @@
 <script src="poly3d.js"></script>
 <script src="poly-pal.js"></script>
 <script src="views.js"></script>
+<script src="anim.js"></script>
 <script src="learn-data.js"></script>
 <script src="quips.js"></script>
 <script src="stats.js"></script>
